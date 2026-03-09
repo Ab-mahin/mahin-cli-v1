@@ -93,7 +93,7 @@ var updateCmd = &cobra.Command{
 		// Clean up the output text
 		newVersionStr := strings.TrimSpace(string(newVerOut))
 
-		fmt.Println("\nOK All done!\n")
+		fmt.Println("\nOK All done!")
 		fmt.Printf("Version before:   mahin %s\n", oldVersion)
 		fmt.Printf("Version deployed: %s\n", newVersionStr)
 		fmt.Println("[OK] Active binary matches deployed version.")
