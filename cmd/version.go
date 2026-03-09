@@ -2,22 +2,18 @@ package cmd
 
 import (
 	"fmt"
-
+	"mahin-cli-v1/config"
 	"github.com/spf13/cobra"
-	"mahin-cli/internal/version"
 )
-
-var versionCmd = &cobra.Command{
-	Use:   "version",
-	Short: "Show current version",
-	Run: func(cmd *cobra.Command, args []string) {
-
-		v := version.Get()
-
-		fmt.Println("Current version:", v)
-	},
-}
 
 func init() {
 	rootCmd.AddCommand(versionCmd)
+}
+
+var versionCmd = &cobra.Command{
+	Use:   "version",
+	Short: "Print the version number of mahin",
+	Run: func(cmd *cobra.Command, args []string) {
+		fmt.Printf("mahin version %s\n", config.AppVersion)
+	},
 }
