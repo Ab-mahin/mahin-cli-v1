@@ -6,7 +6,7 @@ package config
 
 const (
 	// GitHubOwner is your GitHub username or organisation.
-	GitHubOwner = "mahin"
+	GitHubOwner = "Ab-mahin"
 
 	// GitHubRepo is the name of the repository that publishes releases.
 	GitHubRepo = "mahin-cli-v1"

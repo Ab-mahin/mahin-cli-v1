@@ -1,8 +1,3 @@
-# mahin-cli-v1
-
-## Project Structure
-
-```text
 mahin-cli-v1/
 │
 ├── main.go                   Detects --internal-updater flag -> routes to child or cobra
@@ -28,4 +23,3 @@ mahin-cli-v1/
     ├── process.go            Builds the OS-specific detached child command
     ├── process_unix.go       Unix: no extra flags needed
     └── process_windows.go    Windows: CREATE_NEW_PROCESS_GROUP to detach child
-```
