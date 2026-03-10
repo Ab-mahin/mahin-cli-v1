@@ -1,19 +1,18 @@
+// version.go — implements the `mahin version` command.
 package cmd
 
 import (
 	"fmt"
-	"mahin-cli-v1/config"
-	"github.com/spf13/cobra"
-)
 
-func init() {
-	rootCmd.AddCommand(versionCmd)
-}
+	"github.com/spf13/cobra"
+
+	"github.com/mahin/mahin-cli-v1/version"
+)
 
 var versionCmd = &cobra.Command{
 	Use:   "version",
-	Short: "Print the version number of mahin",
+	Short: "Show current version, commit, and build date",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Printf("mahin version %s\n", config.AppVersion)
+		fmt.Println(version.Full())
 	},
 }
