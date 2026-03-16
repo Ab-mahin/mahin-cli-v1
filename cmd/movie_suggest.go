@@ -167,7 +167,7 @@ func suggestByType(database *db.DB, client *tmdb.Client, mediaType string, count
 }
 
 func suggestRandom(client *tmdb.Client, count int) {
-	fmt.Println("🎲 Fetching random suggestions...\n")
+	fmt.Println("🎲 Fetching random suggestions...")
 
 	var suggestions []tmdb.SearchResult
 	seenIDs := make(map[int]bool)
