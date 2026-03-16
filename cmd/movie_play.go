@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
-	"strconv"
 
 	"github.com/spf13/cobra"
 
@@ -14,9 +13,9 @@ import (
 )
 
 var moviePlayCmd = &cobra.Command{
-	Use:   "play [id]",
+	Use:   "play [id-or-title]",
 	Short: "Play a movie or TV show with the default player",
-	Long:  `Opens a media file with the system's default video player.`,
+	Long:  `Opens a media file with the system's default video player by ID or title.`,
 	Args:  cobra.ExactArgs(1),
 	Run:   runMoviePlay,
 }
@@ -29,13 +28,7 @@ func runMoviePlay(cmd *cobra.Command, args []string) {
 	}
 	defer database.Close()
 
-	id, err := strconv.ParseInt(args[0], 10, 64)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "❌ Invalid ID.")
-		os.Exit(1)
-	}
-
-	m, err := database.GetMediaByID(id)
+	m, err := resolveMediaByQuery(database, args[0])
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "❌ Media not found: %v\n", err)
 		os.Exit(1)

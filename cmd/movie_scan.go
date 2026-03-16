@@ -15,13 +15,20 @@ import (
 	"github.com/mahin/mahin-cli-v1/tmdb"
 )
 
+var scanVerbose bool
+
 var movieScanCmd = &cobra.Command{
 	Use:   "scan [folder]",
 	Short: "Scan a folder for movies and TV shows",
 	Long: `Scans a folder for video files, cleans filenames, fetches metadata
-from TMDb, downloads thumbnails, and stores everything in the database.`,
+from TMDb, downloads thumbnails, and stores everything in the database.
+Use --verbose for detailed per-file output.`,
 	Args: cobra.MaximumNArgs(1),
 	Run:  runMovieScan,
+}
+
+func init() {
+	movieScanCmd.Flags().BoolVarP(&scanVerbose, "verbose", "v", false, "Show detailed per-file scan output")
 }
 
 func runMovieScan(cmd *cobra.Command, args []string) {
@@ -63,6 +70,9 @@ func runMovieScan(cmd *cobra.Command, args []string) {
 		apiKey = os.Getenv("TMDB_API_KEY")
 	}
 	if apiKey == "" {
+		apiKey = tmdb.DefaultAPIKey
+	}
+	if apiKey == "" {
 		fmt.Fprintln(os.Stderr, "⚠️  No TMDb API key configured.")
 		fmt.Fprintln(os.Stderr, "   Set it with: mahin movie config set tmdb_api_key YOUR_KEY")
 		fmt.Fprintln(os.Stderr, "   Or set TMDB_API_KEY environment variable.")
@@ -72,7 +82,12 @@ func runMovieScan(cmd *cobra.Command, args []string) {
 
 	client := tmdb.NewClient(apiKey)
 
-	fmt.Printf("🔍 Scanning: %s\n\n", scanDir)
+	fmt.Printf("🔍 Scanning: %s\n", scanDir)
+	if scanVerbose {
+		fmt.Println()
+	} else {
+		fmt.Println("   Use --verbose for detailed per-file output.")
+	}
 
 	var totalFiles, movieCount, tvCount, skipped int
 
@@ -113,12 +128,14 @@ func runMovieScan(cmd *cobra.Command, args []string) {
 
 		// Clean the filename
 		result := cleaner.Clean(name)
-		fmt.Printf("  📄 %s\n", name)
-		fmt.Printf("     → %s", result.CleanTitle)
-		if result.Year > 0 {
-			fmt.Printf(" (%d)", result.Year)
+		if scanVerbose {
+			fmt.Printf("  📄 %s\n", name)
+			fmt.Printf("     → %s", result.CleanTitle)
+			if result.Year > 0 {
+				fmt.Printf(" (%d)", result.Year)
+			}
+			fmt.Printf(" [%s]\n", result.Type)
 		}
-		fmt.Printf(" [%s]\n", result.Type)
 
 		// Check if already in DB by path
 		existing, _ := database.SearchMedia(result.CleanTitle)
@@ -126,7 +143,9 @@ func runMovieScan(cmd *cobra.Command, args []string) {
 		for _, e := range existing {
 			if e.OriginalFilePath == fullPath {
 				alreadyExists = true
-				fmt.Println("     ⏩ Already in database, skipping")
+				if scanVerbose {
+					fmt.Println("     ⏩ Already in database, skipping")
+				}
 				break
 			}
 		}
@@ -158,13 +177,27 @@ func runMovieScan(cmd *cobra.Command, args []string) {
 
 		// Fetch metadata from TMDb
 		if apiKey != "" {
-			searchQuery := result.CleanTitle
+			searchQueries := []string{result.CleanTitle}
 			if result.Year > 0 {
-				searchQuery += " " + strconv.Itoa(result.Year)
+				yearQuery := fmt.Sprintf("%s %d", result.CleanTitle, result.Year)
+				if yearQuery != result.CleanTitle {
+					searchQueries = append(searchQueries, yearQuery)
+				}
 			}
 
-			results, err := client.SearchMulti(searchQuery)
-			if err == nil && len(results) > 0 {
+			var results []tmdb.SearchResult
+			var searchErr error
+			for _, q := range searchQueries {
+				if strings.TrimSpace(q) == "" {
+					continue
+				}
+				results, searchErr = client.SearchMulti(q)
+				if searchErr == nil && len(results) > 0 {
+					break
+				}
+			}
+
+			if searchErr == nil && len(results) > 0 {
 				best := results[0]
 				m.TmdbID = best.ID
 				m.TmdbRating = best.VoteAvg
@@ -252,13 +285,19 @@ func runMovieScan(cmd *cobra.Command, args []string) {
 					thumbPath := filepath.Join(thumbDir, slug+".jpg")
 					if err := client.DownloadPoster(best.PosterPath, thumbPath); err == nil {
 						m.ThumbnailPath = thumbPath
-						fmt.Println("     🖼️  Thumbnail saved")
+						if scanVerbose {
+							fmt.Println("     🖼️  Thumbnail saved")
+						}
 					}
 				}
 
-				fmt.Printf("     ✅ TMDb: %s (⭐ %.1f)\n", m.Title, m.TmdbRating)
+				if scanVerbose {
+					fmt.Printf("     ✅ TMDb: %s (⭐ %.1f)\n", m.Title, m.TmdbRating)
+				}
 			} else {
-				fmt.Println("     ⚠️  No TMDb match found")
+				if scanVerbose {
+					fmt.Println("     ⚠️  No TMDb match found")
+				}
 			}
 		}
 
@@ -269,7 +308,9 @@ func runMovieScan(cmd *cobra.Command, args []string) {
 			if m.TmdbID > 0 {
 				database.UpdateMediaByTmdbID(m)
 			} else {
-				fmt.Fprintf(os.Stderr, "     ❌ DB error: %v\n", err)
+				if scanVerbose {
+					fmt.Fprintf(os.Stderr, "     ❌ DB error: %v\n", err)
+				}
 			}
 		}
 
@@ -278,7 +319,9 @@ func runMovieScan(cmd *cobra.Command, args []string) {
 		} else {
 			tvCount++
 		}
-		fmt.Println()
+		if scanVerbose {
+			fmt.Println()
+		}
 	}
 
 	// Log scan history

@@ -5,19 +5,33 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/spf13/cobra"
 
+	"github.com/mahin/mahin-cli-v1/cleaner"
 	"github.com/mahin/mahin-cli-v1/db"
+)
+
+var (
+	movieLsLimit int
+	movieLsSort  string
 )
 
 var movieLsCmd = &cobra.Command{
 	Use:   "ls",
 	Short: "List movies and TV shows from your library",
 	Long: `Lists scanned movies and TV shows with pagination.
+Use --limit to control page size and --sort (title|rating|year) to order results.
 Press N for next page, P for previous, Q to quit.`,
 	Run: runMovieLs,
+}
+
+func init() {
+	movieLsCmd.Flags().IntVar(&movieLsLimit, "limit", 0, "Items per page (defaults to page_size config or 20)")
+	movieLsCmd.Flags().StringVar(&movieLsSort, "sort", "title", "Sort by: title, rating, year")
 }
 
 func runMovieLs(cmd *cobra.Command, args []string) {
@@ -28,27 +42,57 @@ func runMovieLs(cmd *cobra.Command, args []string) {
 	}
 	defer database.Close()
 
-	pageSizeStr, _ := database.GetConfig("page_size")
-	pageSize, _ := strconv.Atoi(pageSizeStr)
+	pageSize := movieLsLimit
+	if pageSize <= 0 {
+		pageSizeStr, _ := database.GetConfig("page_size")
+		pageSize, _ = strconv.Atoi(pageSizeStr)
+	}
 	if pageSize <= 0 {
 		pageSize = 20
 	}
 
-	total, _ := database.CountMedia("")
+	sortBy := strings.ToLower(strings.TrimSpace(movieLsSort))
+	switch sortBy {
+	case "title", "rating", "year":
+	default:
+		fmt.Fprintf(os.Stderr, "❌ Invalid --sort value %q. Use: title, rating, year\n", movieLsSort)
+		os.Exit(1)
+	}
+
+	allMedia, err := database.ListMedia(0, 100000)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "❌ Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	var libraryMedia []db.Media
+	for _, m := range allMedia {
+		if strings.TrimSpace(m.CurrentFilePath) == "" {
+			continue
+		}
+		if cleaner.IsVideoFile(m.CurrentFilePath) {
+			libraryMedia = append(libraryMedia, m)
+		}
+	}
+
+	total := len(libraryMedia)
 	if total == 0 {
-		fmt.Println("📭 No media found. Run 'mahin movie scan <folder>' first.")
+		fmt.Println("📭 No local movie/TV files found in your library.")
+		fmt.Println("   Run: mahin movie scan <folder>")
 		return
 	}
+
+	sortMediaList(libraryMedia, sortBy)
 
 	offset := 0
 	scanner := bufio.NewScanner(os.Stdin)
 
 	for {
-		media, err := database.ListMedia(offset, pageSize)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "❌ Error: %v\n", err)
-			return
+		pageEnd := offset + pageSize
+		if pageEnd > total {
+			pageEnd = total
 		}
+		media := libraryMedia[offset:pageEnd]
 
 		// Clear screen
 		fmt.Print("\033[H\033[2J")
@@ -56,7 +100,7 @@ func runMovieLs(cmd *cobra.Command, args []string) {
 		page := (offset / pageSize) + 1
 		totalPages := (total + pageSize - 1) / pageSize
 
-		fmt.Printf("🎬 Your Library — Page %d/%d (%d total)\n", page, totalPages, total)
+		fmt.Printf("🎬 Your Library — Page %d/%d (%d total, sorted by %s)\n", page, totalPages, total, sortBy)
 		fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 		for i, m := range media {
@@ -84,13 +128,13 @@ func runMovieLs(cmd *cobra.Command, args []string) {
 
 		fmt.Println()
 		fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-		fmt.Print("  [N] Next  [P] Previous  [Q] Quit  [1-9] View details → ")
+		fmt.Print("  [N] Next  [P] Previous  [Q] Quit  [number] View details → ")
 
 		if !scanner.Scan() {
 			break
 		}
 
-		input := scanner.Text()
+		input := strings.TrimSpace(scanner.Text())
 		switch {
 		case input == "n" || input == "N":
 			if offset+pageSize < total {
@@ -108,14 +152,45 @@ func runMovieLs(cmd *cobra.Command, args []string) {
 			fmt.Println("👋 Bye!")
 			return
 		default:
-			// Try to parse as number for detail view
 			if num, err := strconv.Atoi(input); err == nil && num > 0 && num <= total {
-				showMediaDetail(database, int64(num))
+				showMediaDetail(database, libraryMedia[num-1].ID)
 				fmt.Print("\nPress Enter to continue...")
 				scanner.Scan()
 			}
 		}
 	}
+}
+
+func sortMediaList(items []db.Media, sortBy string) {
+	switch sortBy {
+	case "rating":
+		sort.SliceStable(items, func(i, j int) bool {
+			left := mediaRating(items[i])
+			right := mediaRating(items[j])
+			if left == right {
+				return strings.ToLower(items[i].CleanTitle) < strings.ToLower(items[j].CleanTitle)
+			}
+			return left > right
+		})
+	case "year":
+		sort.SliceStable(items, func(i, j int) bool {
+			if items[i].Year == items[j].Year {
+				return strings.ToLower(items[i].CleanTitle) < strings.ToLower(items[j].CleanTitle)
+			}
+			return items[i].Year > items[j].Year
+		})
+	default: // title
+		sort.SliceStable(items, func(i, j int) bool {
+			return strings.ToLower(items[i].CleanTitle) < strings.ToLower(items[j].CleanTitle)
+		})
+	}
+}
+
+func mediaRating(m db.Media) float64 {
+	if m.TmdbRating > 0 {
+		return m.TmdbRating
+	}
+	return m.ImdbRating
 }
 
 func showMediaDetail(database *db.DB, id int64) {

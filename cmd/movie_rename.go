@@ -2,11 +2,9 @@
 package cmd
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -14,12 +12,19 @@ import (
 	"github.com/mahin/mahin-cli-v1/db"
 )
 
+var movieRenameDryRun bool
+
 var movieRenameCmd = &cobra.Command{
-	Use:   "rename",
+	Use:   "rename [folder]",
 	Short: "Rename files to clean names",
 	Long: `Automatically renames messy filenames to clean format.
 Example: Scream.2022.1080p.WEBRip.x264-RARBG.mkv → Scream (2022).mkv`,
-	Run: runMovieRename,
+	Args: cobra.MaximumNArgs(1),
+	Run:  runMovieRename,
+}
+
+func init() {
+	movieRenameCmd.Flags().BoolVar(&movieRenameDryRun, "dry-run", false, "Preview rename operations without changing files")
 }
 
 func runMovieRename(cmd *cobra.Command, args []string) {
@@ -30,35 +35,58 @@ func runMovieRename(cmd *cobra.Command, args []string) {
 	}
 	defer database.Close()
 
-	media, err := database.ListMedia(0, 10000)
-	if err != nil || len(media) == 0 {
-		fmt.Println("📭 No media found.")
-		return
+	folder := ""
+	if len(args) > 0 {
+		folder = args[0]
+	} else {
+		folder, _ = database.GetConfig("scan_dir")
+		if folder == "" {
+			folder = "."
+		}
 	}
 
-	// Find files that need renaming
+	home, _ := os.UserHomeDir()
+	folder = expandHome(folder, home)
+
+	info, err := os.Stat(folder)
+	if err != nil || !info.IsDir() {
+		fmt.Fprintf(os.Stderr, "❌ Folder not found: %s\n", folder)
+		os.Exit(1)
+	}
+
 	type renameItem struct {
-		media   db.Media
 		oldPath string
 		newPath string
 		oldName string
 		newName string
 	}
 
+	entries, err := os.ReadDir(folder)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "❌ Cannot read folder: %v\n", err)
+		os.Exit(1)
+	}
+
 	var items []renameItem
-	for _, m := range media {
-		if m.CurrentFilePath == "" {
+	for _, entry := range entries {
+		if entry.IsDir() || !cleaner.IsVideoFile(entry.Name()) {
 			continue
 		}
-		dir := filepath.Dir(m.CurrentFilePath)
-		oldName := filepath.Base(m.CurrentFilePath)
-		newName := cleaner.ToCleanFileName(m.CleanTitle, m.Year, m.FileExtension)
+
+		oldName := entry.Name()
+		parsed := cleaner.Clean(oldName)
+		if parsed.CleanTitle == "" {
+			continue
+		}
+
+		newName := cleaner.ToCleanFileName(parsed.CleanTitle, parsed.Year, parsed.Extension)
+		oldPath := filepath.Join(folder, oldName)
+		newPath := filepath.Join(folder, newName)
 
 		if oldName != newName {
 			items = append(items, renameItem{
-				media:   m,
-				oldPath: m.CurrentFilePath,
-				newPath: filepath.Join(dir, newName),
+				oldPath: oldPath,
+				newPath: newPath,
 				oldName: oldName,
 				newName: newName,
 			})
@@ -70,32 +98,33 @@ func runMovieRename(cmd *cobra.Command, args []string) {
 		return
 	}
 
-	fmt.Printf("📝 Found %d files to rename:\n\n", len(items))
+	fmt.Printf("📝 Found %d files to rename in %s:\n\n", len(items), folder)
 	for i, item := range items {
 		fmt.Printf("  %d. %s\n", i+1, item.oldName)
 		fmt.Printf("     → %s\n\n", item.newName)
 	}
 
-	fmt.Print("Rename all? [y/N]: ")
-	scanner := bufio.NewScanner(os.Stdin)
-	if !scanner.Scan() {
-		return
-	}
-	confirm := strings.ToLower(strings.TrimSpace(scanner.Text()))
-	if confirm != "y" && confirm != "yes" {
-		fmt.Println("❌ Cancelled.")
+	if movieRenameDryRun {
+		fmt.Println("🧪 Dry run complete. No files were renamed.")
 		return
 	}
 
 	success := 0
 	for _, item := range items {
+		if _, err := os.Stat(item.newPath); err == nil {
+			fmt.Fprintf(os.Stderr, "  ⚠️  Skipped (target exists): %s\n", item.newName)
+			continue
+		}
+
 		if err := os.Rename(item.oldPath, item.newPath); err != nil {
 			fmt.Fprintf(os.Stderr, "  ❌ Failed: %s → %v\n", item.oldName, err)
 			continue
 		}
-		database.UpdateMediaPath(item.media.ID, item.newPath)
-		database.InsertMoveHistory(item.media.ID, item.oldPath, item.newPath,
-			item.oldName, item.newName)
+		_, _ = database.Exec(
+			"UPDATE media SET current_file_path = ?, updated_at = CURRENT_TIMESTAMP WHERE current_file_path = ?",
+			item.newPath,
+			item.oldPath,
+		)
 		fmt.Printf("  ✅ %s → %s\n", item.oldName, item.newName)
 		success++
 	}

@@ -84,6 +84,13 @@ func Clean(filename string) Result {
 		if idx := strings.Index(cleaned, yearStr); idx > 0 {
 			cleaned = strings.TrimSpace(cleaned[:idx+len(yearStr)])
 		}
+
+		// Keep year as separate metadata field, not part of title.
+		parts := strings.Fields(cleaned)
+		for len(parts) > 1 && parts[len(parts)-1] == yearStr {
+			parts = parts[:len(parts)-1]
+		}
+		cleaned = strings.Join(parts, " ")
 	}
 
 	return Result{

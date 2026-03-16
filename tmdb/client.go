@@ -15,6 +15,9 @@ import (
 const baseURL = "https://api.themoviedb.org/3"
 const imageBaseURL = "https://image.tmdb.org/t/p/w500"
 
+// DefaultAPIKey is used when no key is provided via config or environment.
+const DefaultAPIKey = "88636f9b250e2fd85a84a8580cb9e2ff"
+
 // Client interacts with the TMDb API.
 type Client struct {
 	APIKey     string
@@ -25,6 +28,9 @@ type Client struct {
 func NewClient(apiKey string) *Client {
 	if apiKey == "" {
 		apiKey = os.Getenv("TMDB_API_KEY")
+	}
+	if apiKey == "" {
+		apiKey = DefaultAPIKey
 	}
 	return &Client{
 		APIKey: apiKey,
@@ -37,10 +43,10 @@ func NewClient(apiKey string) *Client {
 // SearchResult holds a search result from TMDb.
 type SearchResult struct {
 	ID          int     `json:"id"`
-	Title       string  `json:"title"`        // for movies
-	Name        string  `json:"name"`         // for TV
+	Title       string  `json:"title"` // for movies
+	Name        string  `json:"name"`  // for TV
 	Overview    string  `json:"overview"`
-	ReleaseDate string  `json:"release_date"` // movies
+	ReleaseDate string  `json:"release_date"`   // movies
 	FirstAir    string  `json:"first_air_date"` // TV
 	VoteAvg     float64 `json:"vote_average"`
 	Popularity  float64 `json:"popularity"`
@@ -55,29 +61,29 @@ type searchResponse struct {
 
 // MovieDetails holds detailed movie info.
 type MovieDetails struct {
-	ID          int      `json:"id"`
-	Title       string   `json:"title"`
-	Overview    string   `json:"overview"`
-	ReleaseDate string   `json:"release_date"`
-	VoteAvg     float64  `json:"vote_average"`
-	Popularity  float64  `json:"popularity"`
-	PosterPath  string   `json:"poster_path"`
-	ImdbID      string   `json:"imdb_id"`
-	Genres      []Genre  `json:"genres"`
-	Runtime     int      `json:"runtime"`
+	ID          int     `json:"id"`
+	Title       string  `json:"title"`
+	Overview    string  `json:"overview"`
+	ReleaseDate string  `json:"release_date"`
+	VoteAvg     float64 `json:"vote_average"`
+	Popularity  float64 `json:"popularity"`
+	PosterPath  string  `json:"poster_path"`
+	ImdbID      string  `json:"imdb_id"`
+	Genres      []Genre `json:"genres"`
+	Runtime     int     `json:"runtime"`
 }
 
 // TVDetails holds detailed TV show info.
 type TVDetails struct {
-	ID           int      `json:"id"`
-	Name         string   `json:"name"`
-	Overview     string   `json:"overview"`
-	FirstAirDate string   `json:"first_air_date"`
-	VoteAvg      float64  `json:"vote_average"`
-	Popularity   float64  `json:"popularity"`
-	PosterPath   string   `json:"poster_path"`
-	Genres       []Genre  `json:"genres"`
-	Seasons      int      `json:"number_of_seasons"`
+	ID           int     `json:"id"`
+	Name         string  `json:"name"`
+	Overview     string  `json:"overview"`
+	FirstAirDate string  `json:"first_air_date"`
+	VoteAvg      float64 `json:"vote_average"`
+	Popularity   float64 `json:"popularity"`
+	PosterPath   string  `json:"poster_path"`
+	Genres       []Genre `json:"genres"`
+	Seasons      int     `json:"number_of_seasons"`
 }
 
 // Genre is a TMDb genre.

@@ -2,7 +2,6 @@
 package cmd
 
 import (
-	"bufio"
 	"fmt"
 	"math/rand"
 	"os"
@@ -16,13 +15,23 @@ import (
 	"github.com/mahin/mahin-cli-v1/tmdb"
 )
 
+var (
+	movieSuggestRandom bool
+	movieSuggestType   string
+)
+
 var movieSuggestCmd = &cobra.Command{
 	Use:   "suggest [N]",
 	Short: "Get movie or TV show suggestions",
 	Long: `Suggests movies or TV shows based on your library.
-Choose Movie, TV, or Random (Empty).`,
+Use --random for random trending picks without library analysis.`,
 	Args: cobra.MaximumNArgs(1),
 	Run:  runMovieSuggest,
+}
+
+func init() {
+	movieSuggestCmd.Flags().BoolVar(&movieSuggestRandom, "random", false, "Return random suggestions from trending content")
+	movieSuggestCmd.Flags().StringVar(&movieSuggestType, "type", "auto", "Suggestion source: auto, movie, tv")
 }
 
 func runMovieSuggest(cmd *cobra.Command, args []string) {
@@ -45,6 +54,9 @@ func runMovieSuggest(cmd *cobra.Command, args []string) {
 		apiKey = os.Getenv("TMDB_API_KEY")
 	}
 	if apiKey == "" {
+		apiKey = tmdb.DefaultAPIKey
+	}
+	if apiKey == "" {
 		fmt.Fprintln(os.Stderr, "❌ TMDb API key required for suggestions.")
 		fmt.Fprintln(os.Stderr, "   Set with: mahin movie config set tmdb_api_key YOUR_KEY")
 		os.Exit(1)
@@ -52,32 +64,35 @@ func runMovieSuggest(cmd *cobra.Command, args []string) {
 
 	client := tmdb.NewClient(apiKey)
 
-	fmt.Println("🎯 Movie Suggest")
-	fmt.Println()
-	fmt.Println("  Select category:")
-	fmt.Println("  1. 🎬 Movie")
-	fmt.Println("  2. 📺 TV")
-	fmt.Println("  3. 🎲 Empty (Random)")
-	fmt.Println()
-	fmt.Print("  Choose [1/2/3]: ")
-
-	scanner := bufio.NewScanner(os.Stdin)
-	if !scanner.Scan() {
+	if movieSuggestRandom {
+		suggestRandom(client, count)
 		return
 	}
 
-	choice := strings.TrimSpace(scanner.Text())
-	fmt.Println()
-
-	switch choice {
-	case "1":
+	typeChoice := strings.ToLower(strings.TrimSpace(movieSuggestType))
+	switch typeChoice {
+	case "movie":
 		suggestByType(database, client, "movie", count)
-	case "2":
+	case "tv":
 		suggestByType(database, client, "tv", count)
-	case "3":
-		suggestRandom(client, count)
+	case "auto", "":
+		movieCount, _ := database.CountMedia("movie")
+		tvCount, _ := database.CountMedia("tv")
+
+		if movieCount == 0 && tvCount == 0 {
+			fmt.Println("📭 Your library is empty. Showing random trending suggestions.")
+			suggestRandom(client, count)
+			return
+		}
+
+		if movieCount >= tvCount {
+			suggestByType(database, client, "movie", count)
+			return
+		}
+		suggestByType(database, client, "tv", count)
 	default:
-		fmt.Println("❌ Invalid choice")
+		fmt.Fprintf(os.Stderr, "❌ Invalid --type value %q. Use: auto, movie, tv\n", movieSuggestType)
+		os.Exit(1)
 	}
 }
 

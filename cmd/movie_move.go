@@ -16,12 +16,14 @@ import (
 )
 
 var movieMoveCmd = &cobra.Command{
-	Use:   "move",
+	Use:   "move [id-or-title] [destination]",
 	Short: "Move a movie or TV show to a destination folder",
-	Long: `Interactively select a movie/TV show and move it to a configured
-destination (Movies, TV Shows, Archive, or custom path).
+	Long: `Move media files to organized directories by ID/title and destination.
+When no args are provided, it falls back to interactive mode.
+Configured destination shortcuts (Movies, TV Shows, Archive) are available in interactive mode.
 The move is logged for undo support.`,
-	Run: runMovieMove,
+	Args: cobra.MaximumNArgs(2),
+	Run:  runMovieMove,
 }
 
 func runMovieMove(cmd *cobra.Command, args []string) {
@@ -31,6 +33,47 @@ func runMovieMove(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 	defer database.Close()
+
+	if len(args) > 0 {
+		runMovieMoveDirect(database, args)
+		return
+	}
+
+	runMovieMoveInteractive(database)
+}
+
+func runMovieMoveDirect(database *db.DB, args []string) {
+	if len(args) != 2 {
+		fmt.Fprintln(os.Stderr, "❌ Usage: mahin movie move <id-or-title> <destination-folder>")
+		os.Exit(1)
+	}
+
+	home, _ := os.UserHomeDir()
+	destDir := expandHome(strings.TrimSpace(args[1]), home)
+	if destDir == "" {
+		fmt.Fprintln(os.Stderr, "❌ Destination folder cannot be empty.")
+		os.Exit(1)
+	}
+
+	selected, err := resolveMediaByQuery(database, args[0])
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "❌ Media not found: %v\n", err)
+		os.Exit(1)
+	}
+
+	fromPath := selected.CurrentFilePath
+	destPath, err := moveMedia(database, selected, destDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "❌ Move failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Println("✅ Moved successfully!")
+	fmt.Printf("   %s\n", fromPath)
+	fmt.Printf("   → %s\n", destPath)
+}
+
+func runMovieMoveInteractive(database *db.DB) {
 
 	scanner := bufio.NewScanner(os.Stdin)
 
@@ -141,16 +184,39 @@ func runMovieMove(cmd *cobra.Command, args []string) {
 		return
 	}
 
-	// Create destination directory
-	if err := os.MkdirAll(destDir, 0755); err != nil {
-		fmt.Fprintf(os.Stderr, "  ❌ Cannot create directory: %v\n", err)
+	fromPath := selected.CurrentFilePath
+	destPath, err = moveMedia(database, &selected, destDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "  ❌ Move failed: %v\n", err)
 		return
 	}
 
+	fmt.Println()
+	fmt.Println("  ✅ Moved successfully!")
+	fmt.Printf("     %s\n", fromPath)
+	fmt.Printf("     → %s\n", destPath)
+}
+
+func moveMedia(database *db.DB, selected *db.Media, destDir string) (string, error) {
+	if selected == nil {
+		return "", fmt.Errorf("no media selected")
+	}
+	if strings.TrimSpace(selected.CurrentFilePath) == "" {
+		return "", fmt.Errorf("media does not have a current file path")
+	}
+
+	// Create destination directory
+	if err := os.MkdirAll(destDir, 0755); err != nil {
+		return "", fmt.Errorf("cannot create directory: %w", err)
+	}
+
+	// Create clean filename
+	cleanName := cleaner.ToCleanFileName(selected.CleanTitle, selected.Year, selected.FileExtension)
+	destPath := filepath.Join(destDir, cleanName)
+
 	// Move the file
 	if err := os.Rename(selected.CurrentFilePath, destPath); err != nil {
-		fmt.Fprintf(os.Stderr, "  ❌ Move failed: %v\n", err)
-		return
+		return "", err
 	}
 
 	// Log move history
@@ -164,10 +230,7 @@ func runMovieMove(cmd *cobra.Command, args []string) {
 	saveHistoryLog(database.BasePath, selected.CleanTitle, selected.Year,
 		selected.CurrentFilePath, destPath)
 
-	fmt.Println()
-	fmt.Println("  ✅ Moved successfully!")
-	fmt.Printf("     %s\n", selected.CurrentFilePath)
-	fmt.Printf("     → %s\n", destPath)
+	return destPath, nil
 }
 
 func expandHome(path, home string) string {

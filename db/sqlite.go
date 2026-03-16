@@ -135,6 +135,7 @@ func (d *DB) migrate() error {
 	INSERT OR IGNORE INTO config (key, value) VALUES ('tv_dir',      '~/TVShows');
 	INSERT OR IGNORE INTO config (key, value) VALUES ('archive_dir', '~/Archive');
 	INSERT OR IGNORE INTO config (key, value) VALUES ('scan_dir',    '~/Downloads');
+	INSERT OR IGNORE INTO config (key, value) VALUES ('tmdb_api_key', '88636f9b250e2fd85a84a8580cb9e2ff');
 	INSERT OR IGNORE INTO config (key, value) VALUES ('page_size',   '20');
 	`
 	_, err := d.Exec(schema)
@@ -169,13 +170,18 @@ type Media struct {
 
 // InsertMedia inserts a new media record and returns the ID.
 func (d *DB) InsertMedia(m *Media) (int64, error) {
+	var tmdbID interface{}
+	if m.TmdbID > 0 {
+		tmdbID = m.TmdbID
+	}
+
 	res, err := d.Exec(`
 		INSERT INTO media (title, clean_title, year, type, tmdb_id, imdb_id,
 			description, imdb_rating, tmdb_rating, popularity, genre, director,
 			cast_list, thumbnail_path, original_file_name, original_file_path,
 			current_file_path, file_extension, file_size)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		m.Title, m.CleanTitle, m.Year, m.Type, m.TmdbID, m.ImdbID,
+		m.Title, m.CleanTitle, m.Year, m.Type, tmdbID, m.ImdbID,
 		m.Description, m.ImdbRating, m.TmdbRating, m.Popularity, m.Genre, m.Director,
 		m.CastList, m.ThumbnailPath, m.OriginalFileName, m.OriginalFilePath,
 		m.CurrentFilePath, m.FileExtension, m.FileSize,
@@ -242,14 +248,45 @@ func (d *DB) GetMediaByID(id int64) (*Media, error) {
 			original_file_path, current_file_path, file_extension, file_size
 		FROM media WHERE id = ?`, id)
 	m := &Media{}
+	var tmdbID sql.NullInt64
 	err := row.Scan(&m.ID, &m.Title, &m.CleanTitle, &m.Year, &m.Type,
-		&m.TmdbID, &m.ImdbID, &m.Description, &m.ImdbRating, &m.TmdbRating,
+		&tmdbID, &m.ImdbID, &m.Description, &m.ImdbRating, &m.TmdbRating,
 		&m.Popularity, &m.Genre, &m.Director, &m.CastList, &m.ThumbnailPath,
 		&m.OriginalFileName, &m.OriginalFilePath, &m.CurrentFilePath,
 		&m.FileExtension, &m.FileSize)
 	if err != nil {
 		return nil, err
 	}
+	if tmdbID.Valid {
+		m.TmdbID = int(tmdbID.Int64)
+	}
+	return m, nil
+}
+
+// GetMediaByTmdbID returns a single media record by TMDb ID.
+func (d *DB) GetMediaByTmdbID(tmdbID int) (*Media, error) {
+	row := d.QueryRow(`
+		SELECT id, title, clean_title, year, type, tmdb_id, imdb_id,
+			description, imdb_rating, tmdb_rating, popularity, genre,
+			director, cast_list, thumbnail_path, original_file_name,
+			original_file_path, current_file_path, file_extension, file_size
+		FROM media WHERE tmdb_id = ? LIMIT 1`, tmdbID)
+
+	m := &Media{}
+	var nullableTMDBID sql.NullInt64
+	err := row.Scan(&m.ID, &m.Title, &m.CleanTitle, &m.Year, &m.Type,
+		&nullableTMDBID, &m.ImdbID, &m.Description, &m.ImdbRating, &m.TmdbRating,
+		&m.Popularity, &m.Genre, &m.Director, &m.CastList, &m.ThumbnailPath,
+		&m.OriginalFileName, &m.OriginalFilePath, &m.CurrentFilePath,
+		&m.FileExtension, &m.FileSize)
+	if err != nil {
+		return nil, err
+	}
+
+	if nullableTMDBID.Valid {
+		m.TmdbID = int(nullableTMDBID.Int64)
+	}
+
 	return m, nil
 }
 
@@ -373,12 +410,16 @@ func scanMediaRows(rows *sql.Rows) ([]Media, error) {
 	var list []Media
 	for rows.Next() {
 		var m Media
+		var tmdbID sql.NullInt64
 		if err := rows.Scan(&m.ID, &m.Title, &m.CleanTitle, &m.Year, &m.Type,
-			&m.TmdbID, &m.ImdbID, &m.Description, &m.ImdbRating, &m.TmdbRating,
+			&tmdbID, &m.ImdbID, &m.Description, &m.ImdbRating, &m.TmdbRating,
 			&m.Popularity, &m.Genre, &m.Director, &m.CastList, &m.ThumbnailPath,
 			&m.OriginalFileName, &m.OriginalFilePath, &m.CurrentFilePath,
 			&m.FileExtension, &m.FileSize); err != nil {
 			return nil, err
+		}
+		if tmdbID.Valid {
+			m.TmdbID = int(tmdbID.Int64)
 		}
 		list = append(list, m)
 	}
