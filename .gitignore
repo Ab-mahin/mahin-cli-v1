@@ -1,0 +1,34 @@
+# ── Binaries ────────────────────────────────────────────────────────────────
+mahin
+mahin.exe
+
+# ── Build output ─────────────────────────────────────────────────────────────
+dist/
+out/
+
+# ── Go toolchain ─────────────────────────────────────────────────────────────
+# Dependency cache (not needed in repo; restored by go mod download)
+vendor/
+
+# Test binary artifacts
+*.test
+*.out
+
+# Cover profiles
+coverage.out
+coverage.html
+
+# ── OS-generated ─────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── Editor / IDE ─────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ── Runtime data ─────────────────────────────────────────────────────────────
+# Local CLI database and cache — user-specific, not committed
+movie-cli-output/
